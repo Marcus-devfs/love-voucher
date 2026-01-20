@@ -7,16 +7,15 @@ type GameState = 'IDLE' | 'PLANTING' | 'PLANTED' | 'DEFUSED' | 'EXPLODED';
 
 export default function C4Simulator() {
     const [gameState, setGameState] = useState<GameState>('IDLE');
-    const [timeLeft, setTimeLeft] = useState<number>(40 * 100); // 40 seconds in centiseconds
     const [timeMs, setTimeMs] = useState(40000);
 
     const [plantProgress, setPlantProgress] = useState(0);
     const [inputCode, setInputCode] = useState('');
+    const [isPlantUnlocked, setIsPlantUnlocked] = useState(false);
 
     const plantIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const beepTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const lastBeepTimeRef = useRef<number>(40000);
 
     // Refined constants
     const DEFUSE_CODE = '7355';
@@ -24,7 +23,7 @@ export default function C4Simulator() {
 
     // --- Planting Logic ---
     const startPlanting = () => {
-        if (gameState !== 'IDLE') return;
+        if (gameState !== 'IDLE' || !isPlantUnlocked) return;
         setGameState('PLANTING');
         playSound(SOUNDS.PLANTING);
 
@@ -33,6 +32,11 @@ export default function C4Simulator() {
             const elapsed = Date.now() - startTime;
             const progress = Math.min((elapsed / PLANT_DURATION) * 100, 100);
             setPlantProgress(progress);
+
+            // Texture sound effect every ~300ms
+            if (Math.floor(elapsed / 300) > Math.floor((elapsed - 50) / 300)) {
+                playSound(SOUNDS.PLANTING);
+            }
 
             if (progress >= 100) {
                 completePlant();
@@ -51,8 +55,7 @@ export default function C4Simulator() {
         if (plantIntervalRef.current) clearInterval(plantIntervalRef.current);
         setGameState('PLANTED');
         playSound(SOUNDS.PLANTED);
-
-        lastBeepTimeRef.current = 40000;
+        setInputCode(''); // Clear code for defuse phase
     };
 
     // --- Timer Logic ---
@@ -93,27 +96,22 @@ export default function C4Simulator() {
             playSound(SOUNDS.BEEP);
 
             // CS 1.6 Bomb Timer Pattern Approximation
-            // Standard: ~45s. We use 40s.
             let delay = 1000;
 
             if (t > 30000) {
-                delay = 1000; // 1 beep/sec
+                delay = 1000;
             } else if (t > 20000) {
                 delay = 800;
             } else if (t > 10000) {
-                // Ramp 800 -> 400
                 const ratio = (t - 10000) / 10000;
                 delay = 400 + (ratio * 400);
             } else if (t > 5000) {
-                // Ramp 400 -> 200
                 const ratio = (t - 5000) / 5000;
                 delay = 200 + (ratio * 200);
             } else if (t > 2000) {
-                // Panic: 200 -> 100
                 const ratio = (t - 2000) / 3000;
                 delay = 100 + (ratio * 100);
             } else {
-                // Final run: very fast
                 delay = 70;
             }
 
@@ -133,11 +131,12 @@ export default function C4Simulator() {
         playSound(SOUNDS.WIN_T);
     };
 
-    // --- Defuse Logic ---
+    // --- Keypad Logic (Plant & Defuse) ---
     const handleKeypadPress = (key: string) => {
-        if (gameState !== 'PLANTED') return;
+        // Allow typing in IDLE (to unlock plant) or PLANTED (to defuse)
+        if (gameState !== 'IDLE' && gameState !== 'PLANTED') return;
 
-        playSound(SOUNDS.DEFUSE);
+        playSound(SOUNDS.DEFUSE); // Click sound
         if (key === 'C') {
             setInputCode('');
             return;
@@ -146,25 +145,34 @@ export default function C4Simulator() {
         const newCode = inputCode + key;
         setInputCode(newCode);
 
-        // Auto-check
+        // Check Code
         if (newCode === DEFUSE_CODE) {
-            handleDefuse();
+            if (gameState === 'IDLE') {
+                setIsPlantUnlocked(true);
+                setInputCode('');
+            } else if (gameState === 'PLANTED') {
+                handleDefuse();
+            }
         } else if (newCode.length >= DEFUSE_CODE.length) {
-            // Wrong code punishment
-            setInputCode(''); // Instant clear
-            // Could play error sound here
+            // Wrong code
+            setInputCode('');
         }
     };
 
     const handleDefuse = () => {
         setGameState('DEFUSED');
+        // Play "Bomb Defused" or similar if we had it.
+        // For now, Counter-Terrorists Win covers it.
+        // Actually, user asked for "Bomb defused" sound. 
+        // We only have WIN_CT which is "Counter-Terrorists Win".
+        // Let's rely on WIN_CT as per requirements or generic defuse sound.
         playSound(SOUNDS.WIN_CT);
     };
 
     // --- Render ---
     return (
         <div className={`relative w-full max-w-lg mx-auto bg-stone-800 p-6 rounded-xl border-4 border-stone-900 shadow-2xl flex flex-col items-center gap-6 select-none ${gameState === 'EXPLODED' ? 'animate-shake' : ''}`}>
-            {/* Screw accents */}
+            {/* Screws */}
             <div className="absolute top-2 left-2 w-3 h-3 rounded-full bg-stone-600 shadow-inner"></div>
             <div className="absolute top-2 right-2 w-3 h-3 rounded-full bg-stone-600 shadow-inner"></div>
             <div className="absolute bottom-2 left-2 w-3 h-3 rounded-full bg-stone-600 shadow-inner"></div>
@@ -178,7 +186,8 @@ export default function C4Simulator() {
 
                 {/* Status Text */}
                 <div className="z-10 text-xl font-military tracking-widest text-stone-500 mb-2">
-                    {gameState === 'IDLE' && 'SYSTEM READY'}
+                    {gameState === 'IDLE' && !isPlantUnlocked && 'ENTER CODE TO ARM'}
+                    {gameState === 'IDLE' && isPlantUnlocked && 'READY TO PLANT'}
                     {gameState === 'PLANTING' && 'ARMING...'}
                     {gameState === 'PLANTED' && 'ARMED'}
                     {gameState === 'DEFUSED' && 'BOMB DEFUSED'}
@@ -191,11 +200,13 @@ export default function C4Simulator() {
                         ? 'ERR_00'
                         : gameState === 'DEFUSED'
                             ? 'SAFE'
-                            : (timeMs / 1000).toFixed(2).replace('.', ':')
+                            : gameState === 'IDLE'
+                                ? (isPlantUnlocked ? 'ARMED' : '----')
+                                : (timeMs / 1000).toFixed(2).replace('.', ':')
                     }
                 </div>
 
-                {/* Win Message Overlay */}
+                {/* Win Message */}
                 {(gameState === 'EXPLODED' || gameState === 'DEFUSED') && (
                     <div className={`absolute bottom-2 text-lg font-bold tracking-widest ${gameState === 'DEFUSED' ? 'text-blue-500' : 'text-red-500'}`}>
                         {gameState === 'DEFUSED' ? 'COUNTER-TERRORISTS WIN' : 'TERRORISTS WIN'}
@@ -206,7 +217,8 @@ export default function C4Simulator() {
             {/* Control Area */}
             <div className="w-full flex-grow flex flex-col items-center gap-4">
 
-                {gameState === 'IDLE' || gameState === 'PLANTING' ? (
+                {/* Plant Button - Only if Unlocked */}
+                {(gameState === 'IDLE' && isPlantUnlocked) || gameState === 'PLANTING' ? (
                     <button
                         className="w-48 h-48 rounded-full bg-gradient-to-br from-red-800 to-red-600 border-8 border-red-900 shadow-lg active:scale-95 transition-transform flex items-center justify-center relative overflow-hidden group"
                         onMouseDown={startPlanting}
@@ -230,27 +242,31 @@ export default function C4Simulator() {
                     </div>
                 )}
 
-                {/* Keypad */}
-                {(gameState === 'PLANTED' || gameState === 'DEFUSED') && (
-                    <div className="grid grid-cols-3 gap-2 p-4 bg-stone-700 rounded-lg shadow-inner">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0].map((k) => (
-                            <button
-                                key={k}
-                                className={`w-16 h-12 rounded bg-stone-800 border-b-4 border-stone-950 text-stone-300 font-digital text-2xl active:border-b-0 active:translate-y-1 transition-all ${k === 'C' ? 'bg-red-900/50 text-red-200' : ''}`}
-                                onClick={() => handleKeypadPress(k.toString())}
-                                disabled={gameState !== 'PLANTED'}
-                            >
-                                {k}
-                            </button>
-                        ))}
-                    </div>
+                {/* Keypad - Visible in IDLE (to arm) and PLANTED (to defuse) */}
+                {(gameState === 'IDLE' || gameState === 'PLANTED' || gameState === 'DEFUSED') && (
+                    (!isPlantUnlocked || gameState === 'PLANTED' || gameState === 'DEFUSED') ? (
+                        <div className="grid grid-cols-3 gap-2 p-4 bg-stone-700 rounded-lg shadow-inner">
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0].map((k) => (
+                                <button
+                                    key={k}
+                                    className={`w-16 h-12 rounded bg-stone-800 border-b-4 border-stone-950 text-stone-300 font-digital text-2xl active:border-b-0 active:translate-y-1 transition-all ${k === 'C' ? 'bg-red-900/50 text-red-200' : ''}`}
+                                    onClick={() => handleKeypadPress(k.toString())}
+                                    disabled={gameState === 'DEFUSED' || (gameState === 'IDLE' && isPlantUnlocked)}
+                                >
+                                    {k}
+                                </button>
+                            ))}
+                        </div>
+                    ) : null
                 )}
 
                 {/* Code Input Display */}
-                {(gameState === 'PLANTED') && (
-                    <div className="h-10 w-48 bg-black/50 border border-stone-600 rounded flex items-center justify-center text-green-500 font-digital text-2xl tracking-widest">
-                        {inputCode.padEnd(4, '_')}
-                    </div>
+                {(gameState === 'IDLE' || gameState === 'PLANTED') && (
+                    (!isPlantUnlocked || gameState === 'PLANTED') && (
+                        <div className="h-10 w-48 bg-black/50 border border-stone-600 rounded flex items-center justify-center text-green-500 font-digital text-2xl tracking-widest">
+                            {inputCode.padEnd(4, '_')}
+                        </div>
+                    )
                 )}
             </div>
         </div>
