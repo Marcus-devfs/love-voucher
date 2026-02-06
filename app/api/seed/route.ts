@@ -3,37 +3,113 @@ import dbConnect from '@/lib/mongodb';
 import Voucher from '@/models/Voucher';
 
 const INITIAL_VOUCHERS = [
-    // Tempo Pessoal
-    { title: 'Uma Tarde Livre', description: 'Ela pode passar uma tarde fazendo o que quiser, sozinha. Você cuida das crianças e da casa.', type: 'time', iconName: 'cloud-sun' },
-    { title: 'Momento Spa em Casa', description: '1 hora de tranquilidade para um banho relaxante, cuidados com a pele ou apenas um tempo de descanso.', type: 'time', iconName: 'sparkles' },
-    { title: 'Para gastar consigo mesma', description: 'Um valor para ela comprar algo que goste, seja uma peça de roupa, um livro ou um item de maquiagem.', type: 'time', iconName: 'shopping-bag' },
-    { title: 'Manhã de Sono', description: 'No fim de semana, você se encarrega das crianças pela manhã para que ela possa dormir até mais tarde.', type: 'time', iconName: 'moon' },
-    { title: 'Folga da Cozinha', description: 'Um dia em que você prepara todas as refeições ou pedem algo para comer.', type: 'time', iconName: 'utensils' },
+    // TEMPO PARA ELA (Focados em auto-cuidado e hobbies)
+    {
+        title: 'Tarde de Compras',
+        description: 'Vá bater perna no shopping, provar roupas com calma e ver vitrines. Eu fico com o pequeno.',
+        type: 'time',
+        iconName: 'shopping-bag'
+    },
+    {
+        title: 'Dia de Beleza',
+        description: 'Tire o dia para cuidar de você: ir ao cabeleireiro, fazer as unhas e se sentir renovada.',
+        type: 'time',
+        iconName: 'scissors'
+    },
+    {
+        title: 'Tour de Cafeterias',
+        description: 'Vamos naquele café que você quer conhecer. Eu dirijo e cuido do bebê enquanto você aproveita.',
+        type: 'together',
+        iconName: 'coffee'
+    },
+    {
+        title: 'Sono Restaurador',
+        description: 'Eu assumo o turno da manhã com nosso filho(a). Durma por você e pelo bebê na barriga!',
+        type: 'time',
+        iconName: 'moon'
+    },
 
-    // Momentos Juntos
-    { title: 'Noite Especial', description: 'Você planeja um encontro surpresa, cuidando de todos os detalhes.', type: 'together', iconName: 'heart' },
-    { title: 'Massagem Relaxante', description: 'Um momento a dois para relaxar e esquecer o stress do dia a dia.', type: 'together', iconName: 'hand' },
-    { title: 'Sessão Cinema em Casa', description: 'Escolha um filme ou série e preparem snacks e bebidas.', type: 'together', iconName: 'film' },
-    { title: 'Noite Desconectada', description: 'Uma noite sem celulares, apenas para conversarem e estarem juntos.', type: 'together', iconName: 'smartphone-off' },
-    { title: 'Um Gesto de Carinho', description: 'Um momento simples para reafirmar a conexão e o afeto.', type: 'together', iconName: 'gift' },
+    // ALÍVIO & CONFORTO (Focados na gravidez)
+    {
+        title: 'Massagem Relaxante',
+        description: 'Massagem especial nos pés inchados ou nas costas para aliviar o peso da gravidez.',
+        type: 'together',
+        iconName: 'hand'
+    },
+    {
+        title: 'Banho de Rainha',
+        description: 'Preparei um banho morno e relaxante. Deixe a porta fechada e esqueça do mundo.',
+        type: 'time',
+        iconName: 'bath'
+    },
+    {
+        title: 'Desejo de Grávida',
+        description: 'Vale qualquer comida que você esteja com vontade agora. Eu busco ou faço, sem julgar!',
+        type: 'special',
+        iconName: 'cake-slice'
+    },
+    {
+        title: 'Pés pro Ar',
+        description: 'Hoje você não levanta do sofá pra nada. Eu levo água, comida e controle remoto pra você.',
+        type: 'time',
+        iconName: 'armchair'
+    },
 
-    // Especial
-    { title: 'À Sua Escolha', description: 'Escolha o que mais gostaria de receber ou fazer.', type: 'special', iconName: 'star', isCustom: true },
+    // SUPORTE MATERNO (Focados na criança de 2 anos)
+    {
+        title: 'Mamãe de Folga',
+        description: 'Troca de fraldas, banho e brincadeiras da criança são 100% comigo hoje.',
+        type: 'time',
+        iconName: 'baby'
+    },
+    {
+        title: 'Motorista Particular',
+        description: 'Para te levar onde precisar (lojas ou médico) com todo conforto e ar condicionado.',
+        type: 'together',
+        iconName: 'car'
+    },
+
+    // MOMENTOS JUNTOS
+    {
+        title: 'Jantar sem "Manhê!"',
+        description: 'Eu cuido da alimentação do pequeno antes, para jantarmos nós dois com calma e conversa.',
+        type: 'together',
+        iconName: 'utensils'
+    },
+    {
+        title: 'Sessão Cinema',
+        description: 'Filme no sofá com snacks. Se você dormir no meio (cansada!), eu não reclamo.',
+        type: 'together',
+        iconName: 'film'
+    },
+
+    // CORINGA
+    {
+        title: 'Vale CORINGA',
+        description: 'Vale qualquer coisa! Use sua imaginação.',
+        type: 'special',
+        iconName: 'star',
+        isCustom: true
+    },
 ];
 
 export async function POST() {
     await dbConnect();
     try {
-        // Clear existing to avoid duplicates on seed
-        await Voucher.deleteMany({ isCustom: false }); // Optional: keep custom ones? Or just wipe all for clean slate? Let's wipe non-custom to be safe, or just check count.
-        // Better strategy: Only insert if empty
-        const count = await Voucher.countDocuments();
-        if (count === 0) {
-            await Voucher.insertMany(INITIAL_VOUCHERS);
-            return NextResponse.json({ message: 'Seeded successfully' });
-        }
-        return NextResponse.json({ message: 'Database already has data. automated seeding skipped.' });
+        // Clear existing non-custom vouchers to avoid duplicates and ensure freshness
+        await Voucher.deleteMany({ isCustom: false });
+
+        // Also check if we should clear custom ones? No, usually not.
+
+        // Insert the new set
+        await Voucher.insertMany(INITIAL_VOUCHERS);
+
+        return NextResponse.json({
+            message: 'Seeded successfully',
+            count: INITIAL_VOUCHERS.length
+        });
     } catch (error) {
+        console.error("Seed error:", error);
         return NextResponse.json({ error: 'Failed to seed' }, { status: 500 });
     }
 }
